@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>인스타 댓글 서포트 대시보드</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #f7f9fa; padding: 30px 15px; margin: 0; }
+    .card { max-width: 620px; margin: 0 auto; background: #fff; padding: 25px 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.06); }
+    h2 { margin-top: 0; color: #1c1e21; font-size: 22px; text-align: center; }
+    .form-group { margin-bottom: 20px; }
+    label { display: block; font-weight: 600; margin-bottom: 8px; color: #333; }
+    input[type="text"], select, textarea { width: 100%; padding: 12px; border: 1px solid #ccd0d5; border-radius: 8px; font-size: 14px; outline: none; }
+    .presets { display: flex; flex-direction: column; gap: 8px; }
+    .preset-btn { text-align: left; background: #f0f2f5; border: 1px solid #e4e6eb; padding: 10px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; color: #050505; }
+    .preset-btn:hover { background: #e4e6eb; }
+    .send-btn { width: 100%; padding: 14px; background: #0095f6; color: white; border: none; font-size: 16px; font-weight: bold; border-radius: 8px; cursor: pointer; }
+    .send-btn:hover { background: #0077c5; }
+    .login-box { background: #eef7ff; border: 1px solid #cce5ff; padding: 15px; border-radius: 8px; margin-bottom: 25px; }
+    .login-box p { margin: 0 0 10px 0; font-size: 13px; color: #004085; }
+    .login-btn-group { display: flex; gap: 10px; }
+    .login-btn { flex: 1; padding: 8px 12px; background: #fff; border: 1px solid #007bff; color: #007bff; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px; }
+    .login-btn:hover { background: #007bff; color: #fff; }
+    #status { margin-top: 15px; text-align: center; font-weight: bold; font-size: 14px; }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <h2>🎯 인스타 댓글 서포터</h2>
+
+    <div class="login-box">
+      <p>📌 <strong>최초 1회 로그인:</strong> 업무용 크롬과 충돌하지 않도록 각 계정을 아래 버튼을 눌러 한 번씩만 로그인해 두세요. (이후 평생 자동 유지)</p>
+      <div class="login-btn-group">
+        <button class="login-btn" onclick="openLogin('acc_1')">오미영 계정 로그인창 열기</button>
+        <button class="login-btn" onclick="openLogin('acc_2')">김현지 계정 로그인창 열기</button>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>1. 광고 게시물 링크</label>
+      <input type="text" id="postUrl" placeholder="https://www.instagram.com/p/C-XXXXX/" />
+    </div>
+
+    <div class="form-group">
+      <label>2. 사용할 계정 선택</label>
+      <select id="accountSelect">
+        <option value="acc_1">오미영 (50대 계정)</option>
+        <option value="acc_2">김현지 (20대 계정)</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label>3. 추천 댓글 선택</label>
+      <div class="presets">
+        <button type="button" class="preset-btn" onclick="setComment('이거 친구가 쓰는 거 봤는데 완전 탐나더라구요 바로 샀습니다 🙌')">"이거 친구가 쓰는 거 봤는데 완전 탐나더라구요 바로 샀습니다 🙌"</button>
+        <button type="button" class="preset-btn" onclick="setComment('배송 진짜 빠르네요! 어제 주문했는데 벌써 옴 대박 👍')">"배송 진짜 빠르네요! 어제 주문했는데 벌써 옴 대박 👍"</button>
+        <button type="button" class="preset-btn" onclick="setComment('요즘 인스타에 자주 보여서 고민 중이었는데 후기 보니까 사야겠어요 ㅎㅎ')">"요즘 인스타에 자주 보여서 고민 중이었는데 후기 보니까 사야겠어요 ㅎㅎ"</button>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>4. 최종 등록할 댓글 내용</label>
+      <textarea id="commentText" rows="3" placeholder="추천 댓글을 선택하거나 여기에 직접 수정해서 입력하세요."></textarea>
+    </div>
+
+    <button id="submitBtn" class="send-btn" onclick="executeComment()">댓글 자동 등록 실행</button>
+    <div id="status"></div>
+  </div>
+
+  <script>
+    function setComment(text) {
+      document.getElementById("commentText").value = text;
+    }
+
+    async function openLogin(accId) {
+      const statusDiv = document.getElementById("status");
+      statusDiv.style.color = "#007bff";
+      statusDiv.innerText = "로그인용 독립 브라우저 창이 열립니다. 인스타그램에 로그인해주세요 (2분 대기).";
+      try {
+        const res = await fetch(`/api/login/${accId}`);
+        const data = await res.json();
+        if (res.ok) {
+          statusDiv.style.color = "green";
+          statusDiv.innerText = "로그인 세션 저장이 완료되었습니다.";
+        } else {
+          statusDiv.style.color = "red";
+          statusDiv.innerText = "오류: " + (data.detail || "로그인 창 열기 실패");
+        }
+      } catch (e) {
+        statusDiv.style.color = "red";
+        statusDiv.innerText = "로그인 창 호출 실패: 서버 연결 상태를 확인하세요.";
+      }
+    }
+
+    async function executeComment() {
+      const postUrl = document.getElementById("postUrl").value.trim();
+      const accountId = document.getElementById("accountSelect").value;
+      const commentText = document.getElementById("commentText").value.trim();
+      const statusDiv = document.getElementById("status");
+      const btn = document.getElementById("submitBtn");
+
+      if (!postUrl || !commentText) {
+        alert("게시물 링크와 댓글 내용을 입력해주세요.");
+        return;
+      }
+
+      btn.disabled = true;
+      statusDiv.style.color = "#0095f6";
+      statusDiv.innerText = "댓글을 작성하는 중입니다...";
+
+      try {
+        const res = await fetch("/api/comment", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            account_id: accountId,
+            post_url: postUrl,
+            comment_text: commentText
+          })
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+          statusDiv.style.color = "green";
+          statusDiv.innerText = "성공: " + data.message;
+        } else {
+          statusDiv.style.color = "red";
+          statusDiv.innerText = "실패: " + (data.detail || "오류 발생");
+        }
+      } catch (err) {
+        statusDiv.style.color = "red";
+        statusDiv.innerText = "서버 통신 실패";
+      } finally {
+        btn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>

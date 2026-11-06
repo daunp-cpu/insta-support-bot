@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+playwrightfastapi
+uvicorn
+playwright
+pydantic
