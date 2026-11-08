@@ -22,22 +22,23 @@ os.makedirs(PROFILES_ROOT, exist_ok=True)
 # 4개 계정 정의
 ACCOUNTS = {
     "acc_1": {
-        "name": "오미영 (50대 계정)",
+        "name": "오미영 (50대/여)",
         "dir": os.path.join(PROFILES_ROOT, "profile_omiyoung")
     },
     "acc_2": {
-        "name": "황지석",
+        "name": "황지석 (30대/남)",
         "dir": os.path.join(PROFILES_ROOT, "profile_hwang")
     },
     "acc_3": {
-        "name": "김현지",
+        "name": "김현지 (20대/여)",
         "dir": os.path.join(PROFILES_ROOT, "profile_kim_hj")
     },
     "acc_4": {
-        "name": "김일미",
+        "name": "김일미 (30대/여)",
         "dir": os.path.join(PROFILES_ROOT, "profile_kim_im")
     }
 }
+
 
 class CommentRequest(BaseModel):
     account_id: str
