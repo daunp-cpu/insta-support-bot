@@ -24,11 +24,10 @@ ACCOUNTS = {
         "name": "오미영 (50대 계정)",
         "dir": os.path.join(PROFILES_ROOT, "profile_omiyoung")
     },
-    "acc_2": {
-        "name": "김현지 (20대 계정)",
-        "dir": os.path.join(PROFILES_ROOT, "profile_kimhyunji")
-    }
-}
+    <option value="황지석">황지석</option>
+<option value="김현지">김현지</option>
+<option value="김일미">김일미</option>
+
 
 class CommentRequest(BaseModel):
     account_id: str
@@ -152,4 +151,3 @@ async def send_comment(req: CommentRequest):
             await context.close()
 
     return {"status": "success", "message": "댓글 작성이 완료되었습니다!"}
-    
