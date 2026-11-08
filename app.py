@@ -168,4 +168,4 @@ async def send_comment(req: CommentRequest):
         finally:
             await context.close()
 
-    return {"status": "success", "message": "댓글 작성이 완료되었습니다!"}
+    return {"status": "success", "message": "댓글 작성이 완료되었습니다!"}    
