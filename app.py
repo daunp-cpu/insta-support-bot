@@ -1,5 +1,8 @@
 import os
+import json
 import asyncio
+import traceback
+from datetime import datetime
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, FileResponse
@@ -16,6 +19,7 @@ app.add_middleware(
 )
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+HISTORY_FILE = os.path.join(BASE_DIR, "comment_history.json")
 
 ACCOUNTS = {
     "acc_1": {
@@ -33,6 +37,10 @@ ACCOUNTS = {
     "acc_4": {
         "name": "김일미 (30대/여)",
         "state_file": os.path.join(BASE_DIR, "state_kim_im.json")
+    },
+    "acc_5": {
+        "name": "이상훈 (30대/남)",
+        "state_file": os.path.join(BASE_DIR, "state_lee_sh.json")
     }
 }
 
@@ -40,6 +48,24 @@ class CommentRequest(BaseModel):
     account_id: str
     post_url: str
     comment_text: str
+
+class DeleteRequest(BaseModel):
+    account_id: str
+    post_url: str
+    comment_text: str
+
+def load_history():
+    if os.path.exists(HISTORY_FILE):
+        try:
+            with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return []
+    return []
+
+def save_history(history):
+    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(history, f, ensure_ascii=False, indent=2)
 
 @app.get("/", response_class=HTMLResponse)
 def get_dashboard():
@@ -60,6 +86,19 @@ def get_debug_screen():
 def get_accounts():
     return [{"id": k, "name": v["name"]} for k, v in ACCOUNTS.items()]
 
+@app.get("/api/history")
+def get_history_summary():
+    history = load_history()
+    counts = {k: 0 for k in ACCOUNTS.keys()}
+    for item in history:
+        acc = item.get("account_id")
+        if acc in counts:
+            counts[acc] += 1
+    return {
+        "counts": counts,
+        "history": list(reversed(history[-50:]))
+    }
+
 @app.post("/api/comment")
 async def send_comment(req: CommentRequest):
     if req.account_id not in ACCOUNTS:
@@ -69,89 +108,148 @@ async def send_comment(req: CommentRequest):
     state_file = acc_info["state_file"]
 
     if not os.path.exists(state_file):
-        raise HTTPException(status_code=400, detail=f"[{acc_info['name']}] 세션 파일({os.path.basename(state_file)})이 서버에 없습니다.")
+        raise HTTPException(status_code=400, detail=f"[{acc_info['name']}] 세션 파일({os.path.basename(state_file)})을 찾을 수 없습니다.")
 
-    async with async_playwright() as p:
-        # 1. 브라우저 시작
-        browser = await p.chromium.launch(
-            headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-blink-features=AutomationControlled",
-                "--disable-gpu"
-            ]
-        )
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-gpu"
+                ]
+            )
 
-        # 2. 저장된 쿠키(JSON)를 완벽하게 로드하여 브라우저 컨텍스트 생성
-        context = await browser.new_context(
-            storage_state=state_file,
-            viewport={"width": 1440, "height": 900},
-            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        )
+            context = await browser.new_context(
+                storage_state=state_file,
+                viewport={"width": 1440, "height": 900},
+                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            )
 
-        page = await context.new_page()
-        await page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+            page = await context.new_page()
+            await page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
-        try:
-            await page.goto(req.post_url, wait_until="networkidle", timeout=30000)
-            await asyncio.sleep(3)
+            try:
+                await page.goto(req.post_url, wait_until="networkidle", timeout=30000)
+                await asyncio.sleep(3)
 
-            # 방해 팝업 닫기
-            popup_selectors = [
-                "svg[aria-label='닫기']",
-                "button:has-text('닫기')",
-                "button:has-text('나중에 하기')",
-                "button:has-text('Not Now')",
-                "div[role='dialog'] button:has-text('취소')"
-            ]
-            for sel in popup_selectors:
-                btn = page.locator(sel)
-                if await btn.count() > 0:
+                for sel in ["svg[aria-label='닫기']", "button:has-text('닫기')", "button:has-text('나중에 하기')", "button:has-text('Not Now')"]:
+                    btn = page.locator(sel)
+                    if await btn.count() > 0:
+                        try:
+                            await btn.first.click(timeout=1500)
+                            await asyncio.sleep(1)
+                        except Exception:
+                            pass
+
+                icons = page.locator("svg[aria-label*='댓글'], svg[aria-label*='Comment']").locator("..")
+                if await icons.count() > 0:
                     try:
-                        await btn.first.click(timeout=1500)
-                        await asyncio.sleep(1)
+                        await icons.first.click(timeout=2000)
+                        await asyncio.sleep(2)
                     except Exception:
                         pass
 
-            # 말풍선(댓글 아이콘) 클릭 시도
-            icons = page.locator("svg[aria-label*='댓글'], svg[aria-label*='Comment']").locator("..")
-            if await icons.count() > 0:
-                try:
-                    await icons.first.click(timeout=2000)
+                box = page.locator("textarea, div[role='textbox']")
+                if await box.count() == 0:
+                    debug_img = os.path.join(BASE_DIR, "debug_error.png")
+                    await page.screenshot(path=debug_img, full_page=True)
+                    raise HTTPException(status_code=400, detail="댓글 창을 찾지 못했습니다. /debug-screen 에서 확인하세요.")
+
+                target = box.first
+                await target.click()
+                await asyncio.sleep(1)
+                await target.fill(req.comment_text)
+                await asyncio.sleep(1)
+
+                post_btn = page.locator("div[role='button']:has-text('게시'), button:has-text('게시')")
+                if await post_btn.count() > 0 and await post_btn.first.is_visible():
+                    await post_btn.first.click()
+                else:
+                    await page.keyboard.press("Enter")
+
+                await asyncio.sleep(4)
+
+                history = load_history()
+                history.append({
+                    "id": int(datetime.now().timestamp() * 1000),
+                    "account_id": req.account_id,
+                    "account_name": acc_info["name"],
+                    "post_url": req.post_url,
+                    "comment_text": req.comment_text,
+                    "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                })
+                save_history(history)
+
+            finally:
+                await context.close()
+                await browser.close()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"서버 실행 오류: {str(e)}")
+
+    return {"status": "success", "message": f"{acc_info['name']} 댓글 작성이 완료되었습니다!"}
+
+@app.post("/api/delete-comment")
+async def delete_comment(req: DeleteRequest):
+    if req.account_id not in ACCOUNTS:
+        raise HTTPException(status_code=400, detail="존재하지 않는 계정입니다.")
+
+    acc_info = ACCOUNTS[req.account_id]
+    state_file = acc_info["state_file"]
+
+    if not os.path.exists(state_file):
+        raise HTTPException(status_code=400, detail="세션 파일이 없습니다.")
+
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
+            context = await browser.new_context(storage_state=state_file, viewport={"width": 1440, "height": 900})
+            page = await context.new_page()
+
+            try:
+                await page.goto(req.post_url, wait_until="networkidle", timeout=30000)
+                await asyncio.sleep(3)
+
+                comment_node = page.locator(f"span:has-text('{req.comment_text}')").first
+                if await comment_node.count() == 0:
+                    raise HTTPException(status_code=404, detail="해당 댓글을 게시물에서 찾을 수 없습니다.")
+
+                await comment_node.hover()
+                await asyncio.sleep(1)
+
+                more_btn = comment_node.locator("xpath=ancestor::ul | ancestor::li | ancestor::div[contains(@role, 'button')]").locator("svg[aria-label*='옵션'], svg[aria-label*='More'], svg[aria-label*='더보기']").first
+                if await more_btn.count() > 0:
+                    await more_btn.click()
+                else:
+                    await page.locator("svg[aria-label*='옵션'], svg[aria-label*='More'], svg[aria-label*='더보기']").first.click()
+                
+                await asyncio.sleep(1)
+
+                delete_btn = page.locator("button:has-text('삭제'), div[role='button']:has-text('삭제')")
+                if await delete_btn.count() > 0:
+                    await delete_btn.first.click()
                     await asyncio.sleep(2)
-                except Exception:
-                    pass
+                else:
+                    raise HTTPException(status_code=400, detail="삭제 메뉴를 누르지 못했습니다.")
 
-            # 댓글 입력창 탐색
-            box = page.locator("textarea, div[role='textbox']")
-            count = await box.count()
+                history = load_history()
+                history = [h for h in history if not (h.get("post_url") == req.post_url and h.get("comment_text") == req.comment_text)]
+                save_history(history)
 
-            if count == 0:
-                debug_img = os.path.join(BASE_DIR, "debug_error.png")
-                await page.screenshot(path=debug_img, full_page=True)
-                raise HTTPException(
-                    status_code=400,
-                    detail="댓글 창을 찾지 못했습니다. /debug-screen 에서 화면을 확인하세요."
-                )
+            finally:
+                await context.close()
+                await browser.close()
 
-            # 댓글 작성 및 게시
-            target = box.first
-            await target.click()
-            await asyncio.sleep(1)
-            await target.fill(req.comment_text)
-            await asyncio.sleep(1)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"삭제 실패: {str(e)}")
 
-            post_btn = page.locator("div[role='button']:has-text('게시'), button:has-text('게시')")
-            if await post_btn.count() > 0 and await post_btn.first.is_visible():
-                await post_btn.first.click()
-            else:
-                await page.keyboard.press("Enter")
-
-            await asyncio.sleep(4)
-
-        finally:
-            await browser.close()
-
-    return {"status": "success", "message": f"{acc_info['name']} 댓글 작성이 성공적으로 완료되었습니다!"}
+    return {"status": "success", "message": "댓글이 삭제되었습니다."}
     

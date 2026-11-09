@@ -12,28 +12,26 @@
       margin: 0;
       padding: 30px 20px;
     }
-    .container { max-width: 900px; margin: 0 auto; }
+    .container { max-width: 950px; margin: 0 auto; }
     h1 { font-size: 24px; margin-bottom: 24px; text-align: center; }
     
-    /* 계정별 통계 카드 */
     .stat-grid {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 12px;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 10px;
       margin-bottom: 24px;
     }
     .stat-card {
       background: #ffffff;
       border: 1px solid #e2e8f0;
       border-radius: 10px;
-      padding: 16px;
+      padding: 14px 10px;
       text-align: center;
       box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
-    .stat-title { font-size: 13px; color: #64748b; margin-bottom: 6px; }
-    .stat-value { font-size: 22px; font-weight: bold; color: #2563eb; }
+    .stat-title { font-size: 12px; color: #64748b; margin-bottom: 6px; }
+    .stat-value { font-size: 20px; font-weight: bold; color: #2563eb; }
 
-    /* 입력 카드 */
     .card {
       background: #ffffff;
       border: 1px solid #e2e8f0;
@@ -65,7 +63,6 @@
     }
     button.submit-btn:disabled { background: #94a3b8; cursor: not-allowed; }
 
-    /* 내역 테이블 */
     .history-card {
       background: #ffffff;
       border: 1px solid #e2e8f0;
@@ -96,19 +93,21 @@
   <div class="container">
     <h1>인스타그램 댓글 관리 대시보드</h1>
 
-    <!-- 1. 계정별 작성 수 카운터 -->
+    <!-- 계정별 실시간 누적 카운터 -->
     <div class="stat-grid" id="statGrid">
       <div class="stat-card"><div class="stat-title">오미영 (50대/여)</div><div class="stat-value" id="count_acc_1">0</div></div>
       <div class="stat-card"><div class="stat-title">황지석 (30대/남)</div><div class="stat-value" id="count_acc_2">0</div></div>
       <div class="stat-card"><div class="stat-title">김현지 (20대/여)</div><div class="stat-value" id="count_acc_3">0</div></div>
       <div class="stat-card"><div class="stat-title">김일미 (30대/여)</div><div class="stat-value" id="count_acc_4">0</div></div>
+      <div class="stat-card"><div class="stat-title">이상훈 (30대/남)</div><div class="stat-value" id="count_acc_5">0</div></div>
     </div>
 
-    <!-- 2. 댓글 작성 폼 -->
+    <!-- 댓글 작성 폼 -->
     <div class="card">
       <div class="form-group">
         <label>작성할 계정</label>
         <select id="accountSelect">
+          <option value="acc_5">이상훈 (30대/남)</option>
           <option value="acc_3">김현지 (20대/여)</option>
           <option value="acc_1">오미영 (50대/여)</option>
           <option value="acc_2">황지석 (30대/남)</option>
@@ -127,7 +126,7 @@
       <div class="status-msg" id="statusMsg"></div>
     </div>
 
-    <!-- 3. 작성 내역 및 삭제 관리 -->
+    <!-- 최근 작성 내역 및 삭제 -->
     <div class="history-card">
       <h2>최근 작성 내역</h2>
       <table>
@@ -153,13 +152,11 @@
         const res = await fetch("/api/history");
         const data = await res.json();
 
-        // 1. 카운트 반영
         for (let accId in data.counts) {
           const el = document.getElementById("count_" + accId);
           if (el) el.innerText = data.counts[accId] + "건";
         }
 
-        // 2. 테이블 목록 렌더링
         const tbody = document.getElementById("historyBody");
         if (data.history.length === 0) {
           tbody.innerHTML = "<tr><td colspan='5' style='text-align:center; color:#94a3b8;'>작성된 내역이 없습니다.</td></tr>";
