@@ -2,7 +2,7 @@ import os
 import asyncio
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
 from playwright.async_api import async_playwright
 
@@ -61,9 +61,13 @@ def get_dashboard():
             return f.read()
     return "<h1>index.html 파일을 찾을 수 없습니다.</h1>"
 
-@app.get("/api/accounts")
-def get_accounts():
-    return [{"id": k, "name": v["name"]} for k, v in ACCOUNTS.items()]
+# 서버 화면 캡처 확인용 주소
+@app.get("/debug-screen")
+def get_debug_screen():
+    debug_path = os.path.join(BASE_DIR, "debug_error.png")
+    if os.path.exists(debug_path):
+        return FileResponse(debug_path, media_type="image/png")
+    return HTMLResponse("<h3>아직 캡처된 화면이 없습니다. 댓글 등록을 한 번 실행해 보세요.</h3>")
 
 @app.post("/api/comment")
 async def send_comment(req: CommentRequest):
@@ -75,7 +79,6 @@ async def send_comment(req: CommentRequest):
 
     async with async_playwright() as p:
         try:
-            # 로컬 테스트에서 성공했던 크기(1440x900)와 옵션을 그대로 적용
             context = await p.chromium.launch_persistent_context(
                 user_data_dir=account_dir,
                 headless=True,
@@ -96,9 +99,9 @@ async def send_comment(req: CommentRequest):
 
         try:
             await page.goto(req.post_url, wait_until="networkidle", timeout=30000)
-            await asyncio.sleep(3)
+            await asyncio.sleep(4)
 
-            # 1. 팝업 닫기
+            # 팝업 닫기
             for text in ["나중에 하기", "Not Now", "닫기"]:
                 btn = page.locator(f"button:has-text('{text}')")
                 if await btn.count() > 0:
@@ -108,7 +111,7 @@ async def send_comment(req: CommentRequest):
                     except Exception:
                         pass
 
-            # 2. 말풍선(댓글 아이콘) 클릭
+            # 말풍선 클릭 시도
             icons = page.locator("svg[aria-label*='댓글'], svg[aria-label*='Comment']").locator("..")
             if await icons.count() > 0:
                 try:
@@ -117,13 +120,20 @@ async def send_comment(req: CommentRequest):
                 except Exception:
                     pass
 
-            # 3. 입력창 탐색
+            # 입력창 탐색
             box = page.locator("textarea, div[role='textbox']")
             count = await box.count()
-            if count == 0:
-                raise HTTPException(status_code=400, detail="댓글 창을 찾지 못했습니다. 계정 로그인이 풀렸는지 확인하세요.")
 
-            # 4. 댓글 입력 및 게시
+            # 실패 시 서버 화면 캡처 저장
+            if count == 0:
+                debug_img = os.path.join(BASE_DIR, "debug_error.png")
+                await page.screenshot(path=debug_img, full_page=True)
+                raise HTTPException(
+                    status_code=400, 
+                    detail="댓글 창을 찾지 못했습니다. 브라우저에서 /debug-screen 주소로 접속해 서버가 보고 있는 화면을 확인하세요."
+                )
+
+            # 댓글 입력 및 게시
             target = box.first
             await target.click()
             await asyncio.sleep(1)
@@ -141,4 +151,5 @@ async def send_comment(req: CommentRequest):
         finally:
             await context.close()
 
-    return {"status": "success", "message": "댓글 작성이 완료되었습니다!"}
+    return {"status": "success", "message": "댓글 작성이 성공적으로 완료되었습니다!"}
+    
