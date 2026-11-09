@@ -2,8 +2,10 @@ import os
 import json
 import asyncio
 import traceback
+import urllib.request
+import urllib.parse
 from datetime import datetime, timezone, timedelta
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
@@ -20,9 +22,17 @@ app.add_middleware(
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 HISTORY_FILE = os.path.join(BASE_DIR, "comment_history.json")
-
-# 리눅스 시스템 패키지 의존성 없는 순수 KST (UTC+9) 정의
 KST = timezone(timedelta(hours=9))
+
+# Meta API 연동 설정
+META_ACCESS_TOKEN = os.getenv("META_ACCESS_TOKEN", "EAARZCr1VmbggBS5MOA5RjWwJ3PW8EyitDtUP3PG1LaLUam4aXvde8saLq2lXkRyrZB6ACHAXRxBSiurQ84IT5D9S3fcdxRVZBOFIrK7nOI7DriGUaAqBZAdOuZCiFdD03i7IHvp0vZC6Y6JjR35ixqTEArVTy8v8BiURZCTPhvWymYXZBde8SZC9IfgiRgwk3IMaNBolSUyaBV7ojQWA6J2bYTZBhYRZCgcau5ib7eNWRJyZBYfXlsDZBiFZA8ViF4q4CTSZC4V5SJSubR0D5USzewria5YuAZDZD")
+META_AD_ACCOUNT_ID = os.getenv("META_AD_ACCOUNT_ID", "1363134018754563")
+
+# 광고 소재 인메모리 캐시
+AD_CACHE = {
+    "last_updated": None,
+    "ads": []
+}
 
 ACCOUNTS = {
     "acc_1": {
@@ -70,6 +80,80 @@ def save_history(history):
     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
         json.dump(history, f, ensure_ascii=False, indent=2)
 
+def fetch_meta_wm_ads():
+    """Meta Graph API에서 WM으로 시작하는 캠페인의 활성 광고 소재 추출 (중복 제거)"""
+    url = f"https://graph.facebook.com/v19.0/act_{META_AD_ACCOUNT_ID}/ads"
+    params = {
+        "fields": "id,name,status,creative{id,name,instagram_permalink_url,effective_object_story_id},campaign{id,name}",
+        "filtering": json.dumps([
+            {"field": "ad.effective_status", "operator": "IN", "value": ["ACTIVE", "PAUSED"]}
+        ]),
+        "limit": "150",
+        "access_token": META_ACCESS_TOKEN
+    }
+    
+    full_url = f"{url}?{urllib.parse.urlencode(params)}"
+    req = urllib.request.Request(full_url, headers={"User-Agent": "Mozilla/5.0"})
+    
+    try:
+        with urllib.request.urlopen(req, timeout=15) as res:
+            data = json.loads(res.read().decode("utf-8"))
+    except Exception as e:
+        print(f"[Meta API Error] {e}")
+        return AD_CACHE["ads"]
+
+    raw_items = data.get("data", [])
+    seen_urls = set()
+    cleaned_ads = []
+
+    for item in raw_items:
+        camp = item.get("campaign", {})
+        camp_name = camp.get("name", "")
+
+        # 캠페인 이름이 'WM'으로 시작하는 건만 필터링 (대소문자 무시)
+        if not camp_name.upper().startswith("WM"):
+            continue
+
+        creative = item.get("creative", {})
+        post_url = creative.get("instagram_permalink_url", "")
+
+        # 퍼머링크가 없으면 effective_object_story_id 기반 추정
+        if not post_url and creative.get("effective_object_story_id"):
+            story_id = creative.get("effective_object_story_id")
+            if "_" in story_id:
+                media_id = story_id.split("_")[1]
+                post_url = f"https://www.instagram.com/p/{media_id}/"
+
+        if not post_url or post_url in seen_urls:
+            continue
+
+        seen_urls.add(post_url)
+        cleaned_ads.append({
+            "ad_id": item.get("id"),
+            "ad_name": item.get("name"),
+            "campaign_name": camp_name,
+            "post_url": post_url
+        })
+
+    AD_CACHE["ads"] = cleaned_ads
+    AD_CACHE["last_updated"] = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+    return cleaned_ads
+
+async def schedule_ad_sync_loop():
+    """5시간마다 주기적으로 Meta 광고 목록 자동 갱신"""
+    while True:
+        try:
+            fetch_meta_wm_ads()
+            print(f"[Auto Sync] WM Ads updated at {AD_CACHE['last_updated']} (Total: {len(AD_CACHE['ads'])})")
+        except Exception as e:
+            print(f"[Auto Sync Error] {e}")
+        await asyncio.sleep(5 * 3600)
+
+@app.on_event("startup")
+async def startup_event():
+    fetch_meta_wm_ads()
+    asyncio.create_task(schedule_ad_sync_loop())
+
 @app.get("/", response_class=HTMLResponse)
 def get_dashboard():
     html_file = os.path.join(BASE_DIR, "index.html")
@@ -88,6 +172,26 @@ def get_debug_screen():
 @app.get("/api/accounts")
 def get_accounts():
     return [{"id": k, "name": v["name"]} for k, v in ACCOUNTS.items()]
+
+@app.get("/api/meta-ads")
+def get_meta_ads():
+    if not AD_CACHE["ads"]:
+        fetch_meta_wm_ads()
+    return {
+        "last_updated": AD_CACHE["last_updated"],
+        "count": len(AD_CACHE["ads"]),
+        "ads": AD_CACHE["ads"]
+    }
+
+@app.post("/api/meta-ads/refresh")
+def refresh_meta_ads():
+    ads = fetch_meta_wm_ads()
+    return {
+        "status": "success",
+        "last_updated": AD_CACHE["last_updated"],
+        "count": len(ads),
+        "ads": ads
+    }
 
 @app.get("/api/history")
 def get_history_summary():
