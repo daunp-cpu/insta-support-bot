@@ -28,7 +28,6 @@ KST = timezone(timedelta(hours=9))
 META_ACCESS_TOKEN = os.getenv("META_ACCESS_TOKEN", "EAARZCr1VmbggBS5MOA5RjWwJ3PW8EyitDtUP3PG1LaLUam4aXvde8saLq2lXkRyrZB6ACHAXRxBSiurQ84IT5D9S3fcdxRVZBOFIrK7nOI7DriGUaAqBZAdOuZCiFdD03i7IHvp0vZC6Y6JjR35ixqTEArVTy8v8BiURZCTPhvWymYXZBde8SZC9IfgiRgwk3IMaNBolSUyaBV7ojQWA6J2bYTZBhYRZCgcau5ib7eNWRJyZBYfXlsDZBiFZA8ViF4q4CTSZC4V5SJSubR0D5USzewria5YuAZDZD")
 META_AD_ACCOUNT_ID = os.getenv("META_AD_ACCOUNT_ID", "1363134018754563")
 
-# 광고 소재 인메모리 캐시
 AD_CACHE = {
     "last_updated": None,
     "ads": []
@@ -81,10 +80,10 @@ def save_history(history):
         json.dump(history, f, ensure_ascii=False, indent=2)
 
 def fetch_meta_wm_ads():
-    """Meta Graph API에서 WM 캠페인의 모든 활성/일시중단 광고 소재를 페이징 처리하여 전수 수집"""
+    """Meta Graph API에서 WM 캠페인 광고 소재와 썸네일(미리보기)을 전수 수집"""
     base_url = f"https://graph.facebook.com/v19.0/act_{META_AD_ACCOUNT_ID}/ads"
     params = {
-        "fields": "id,name,status,creative{id,name,instagram_permalink_url,effective_object_story_id},campaign{id,name}",
+        "fields": "id,name,status,creative{id,name,instagram_permalink_url,effective_object_story_id,thumbnail_url,image_url},campaign{id,name}",
         "limit": "200",
         "access_token": META_ACCESS_TOKEN
     }
@@ -94,7 +93,7 @@ def fetch_meta_wm_ads():
     cleaned_ads = []
     page_count = 0
 
-    while next_url and page_count < 10:  # 최대 2,000개까지 순회
+    while next_url and page_count < 10:
         page_count += 1
         req = urllib.request.Request(next_url, headers={"User-Agent": "Mozilla/5.0"})
         try:
@@ -112,14 +111,12 @@ def fetch_meta_wm_ads():
             camp = item.get("campaign", {})
             camp_name = camp.get("name", "")
 
-            # 캠페인 이름에 'WM'이 포함되어 있으면 수집
             if "WM" not in camp_name.upper():
                 continue
 
             creative = item.get("creative", {})
             post_url = creative.get("instagram_permalink_url", "")
 
-            # 퍼머링크가 없을 경우 스토리 ID 변환
             if not post_url and creative.get("effective_object_story_id"):
                 story_id = creative.get("effective_object_story_id")
                 if "_" in story_id:
@@ -130,14 +127,18 @@ def fetch_meta_wm_ads():
                 continue
 
             seen_urls.add(post_url)
+
+            # 썸네일 URL 추출 (동영상 썸네일 또는 이미지 소재 URL)
+            thumbnail = creative.get("thumbnail_url") or creative.get("image_url") or ""
+
             cleaned_ads.append({
                 "ad_id": item.get("id"),
                 "ad_name": item.get("name"),
                 "campaign_name": camp_name,
-                "post_url": post_url
+                "post_url": post_url,
+                "thumbnail_url": thumbnail
             })
 
-        # 다음 페이지 URL 추출
         paging = data.get("paging", {})
         next_url = paging.get("next")
 
@@ -147,7 +148,6 @@ def fetch_meta_wm_ads():
     return cleaned_ads
 
 async def schedule_ad_sync_loop():
-    """5시간마다 주기적으로 Meta 광고 목록 자동 갱신"""
     while True:
         try:
             fetch_meta_wm_ads()

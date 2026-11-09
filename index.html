@@ -12,7 +12,7 @@
       margin: 0;
       padding: 24px;
     }
-    .container { max-width: 1200px; margin: 0 auto; }
+    .container { max-width: 1240px; margin: 0 auto; }
     h1 { font-size: 22px; margin-bottom: 20px; text-align: center; }
     
     .stat-grid {
@@ -36,7 +36,7 @@
 
     .main-layout {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1.15fr 0.85fr;
       gap: 20px;
       margin-bottom: 24px;
     }
@@ -69,37 +69,66 @@
     .refresh-btn:hover { background: #e2e8f0; }
 
     .ad-list-box {
-      max-height: 400px;
+      max-height: 480px;
       overflow-y: auto;
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 10px;
+      padding-right: 4px;
     }
     .ad-item {
       border: 1px solid #e2e8f0;
       border-radius: 8px;
-      padding: 10px 12px;
+      padding: 10px;
       display: flex;
-      justify-content: space-between;
       align-items: center;
       background: #fafafa;
+      gap: 12px;
       transition: all 0.15s ease;
     }
     .ad-item:hover { background: #f0f7ff; border-color: #93c5fd; }
-    .ad-info { flex: 1; min-width: 0; padding-right: 10px; }
+    
+    /* 썸네일 미리보기 박스 스타일 */
+    .ad-thumb {
+      width: 54px;
+      height: 54px;
+      border-radius: 6px;
+      background: #e2e8f0;
+      object-fit: cover;
+      flex-shrink: 0;
+      border: 1px solid #cbd5e1;
+    }
+    .ad-thumb-placeholder {
+      width: 54px;
+      height: 54px;
+      border-radius: 6px;
+      background: #f1f5f9;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      color: #94a3b8;
+      flex-shrink: 0;
+      border: 1px solid #e2e8f0;
+    }
+
+    .ad-info { flex: 1; min-width: 0; }
     .ad-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #0f172a; }
-    .ad-camp { font-size: 11px; color: #64748b; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ad-camp { font-size: 11px; color: #64748b; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    
     .select-ad-btn {
       background: #2563eb;
       color: #fff;
       border: none;
-      padding: 6px 12px;
+      padding: 7px 12px;
       border-radius: 6px;
       font-size: 12px;
       font-weight: 600;
       cursor: pointer;
       white-space: nowrap;
+      flex-shrink: 0;
     }
+    .select-ad-btn:hover { background: #1d4ed8; }
 
     .form-group { margin-bottom: 14px; }
     label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 5px; }
@@ -110,7 +139,7 @@
       border-radius: 8px;
       font-size: 13px;
     }
-    textarea { height: 95px; resize: vertical; }
+    textarea { height: 115px; resize: vertical; }
     button.submit-btn {
       width: 100%;
       padding: 12px;
@@ -153,7 +182,6 @@
   <div class="container">
     <h1>인스타그램 댓글 관리 대시보드</h1>
 
-    <!-- 계정별 실시간 카운터 (오늘 작성 건수 / 총 누적 건수) -->
     <div class="stat-grid" id="statGrid">
       <div class="stat-card">
         <div class="stat-title">오미영 (50대/여)</div>
@@ -187,15 +215,14 @@
       </div>
     </div>
 
-    <!-- 좌/우 2분할 레이아웃 -->
     <div class="main-layout">
-      <!-- 좌측: WM 캠페인 광고 소재 목록 -->
+      <!-- 좌측: WM 캠페인 광고 소재 목록 (썸네일 포함) -->
       <div class="card">
         <div class="card-header">
-          <h2>WM 광고 소재 목록 (<span id="adCount">0</span>개)</h2>
+          <h2>WM 광고 소재 (<span id="adCount">0</span>개)</h2>
           <button class="refresh-btn" id="refreshBtn" onclick="manualRefreshAds()">🔄 새로고침</button>
         </div>
-        <div style="font-size:11px; color:#94a3b8; margin-bottom:8px;">마지막 동기화: <span id="lastUpdated">-</span> (5시간 자동 갱신)</div>
+        <div style="font-size:11px; color:#94a3b8; margin-bottom:10px;">마지막 동기화: <span id="lastUpdated">-</span> (5시간 자동 갱신)</div>
         <div class="ad-list-box" id="adListBox">
           <div style="text-align:center; padding:30px; color:#94a3b8; font-size:13px;">광고 목록을 불러오는 중...</div>
         </div>
@@ -286,15 +313,22 @@
         return;
       }
 
-      box.innerHTML = data.ads.map(ad => `
-        <div class="ad-item">
-          <div class="ad-info">
-            <div class="ad-name" title="${ad.ad_name}">${ad.ad_name}</div>
-            <div class="ad-camp" title="${ad.campaign_name}">${ad.campaign_name}</div>
+      box.innerHTML = data.ads.map(ad => {
+        const thumbHtml = ad.thumbnail_url 
+          ? `<img class="ad-thumb" src="${ad.thumbnail_url}" alt="미리보기" onerror="this.outerHTML='<div class=\\'ad-thumb-placeholder\\'>No Img</div>'" />`
+          : `<div class="ad-thumb-placeholder">미리보기<br>없음</div>`;
+
+        return `
+          <div class="ad-item">
+            ${thumbHtml}
+            <div class="ad-info">
+              <div class="ad-name" title="${ad.ad_name}">${ad.ad_name}</div>
+              <div class="ad-camp" title="${ad.campaign_name}">${ad.campaign_name}</div>
+            </div>
+            <button class="select-ad-btn" onclick="selectAd('${ad.post_url}')">선택</button>
           </div>
-          <button class="select-ad-btn" onclick="selectAd('${ad.post_url}')">선택</button>
-        </div>
-      `).join("");
+        `;
+      }).join("");
     }
 
     function selectAd(url) {
