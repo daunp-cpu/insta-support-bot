@@ -5,7 +5,7 @@ import traceback
 import urllib.request
 import urllib.parse
 from datetime import datetime, timezone, timedelta
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
@@ -81,60 +81,67 @@ def save_history(history):
         json.dump(history, f, ensure_ascii=False, indent=2)
 
 def fetch_meta_wm_ads():
-    """Meta Graph API에서 WM으로 시작하는 캠페인의 활성 광고 소재 추출 (중복 제거)"""
-    url = f"https://graph.facebook.com/v19.0/act_{META_AD_ACCOUNT_ID}/ads"
+    """Meta Graph API에서 WM 캠페인의 모든 활성/일시중단 광고 소재를 페이징 처리하여 전수 수집"""
+    base_url = f"https://graph.facebook.com/v19.0/act_{META_AD_ACCOUNT_ID}/ads"
     params = {
         "fields": "id,name,status,creative{id,name,instagram_permalink_url,effective_object_story_id},campaign{id,name}",
-        "filtering": json.dumps([
-            {"field": "ad.effective_status", "operator": "IN", "value": ["ACTIVE", "PAUSED"]}
-        ]),
-        "limit": "150",
+        "limit": "200",
         "access_token": META_ACCESS_TOKEN
     }
-    
-    full_url = f"{url}?{urllib.parse.urlencode(params)}"
-    req = urllib.request.Request(full_url, headers={"User-Agent": "Mozilla/5.0"})
-    
-    try:
-        with urllib.request.urlopen(req, timeout=15) as res:
-            data = json.loads(res.read().decode("utf-8"))
-    except Exception as e:
-        print(f"[Meta API Error] {e}")
-        return AD_CACHE["ads"]
 
-    raw_items = data.get("data", [])
+    next_url = f"{base_url}?{urllib.parse.urlencode(params)}"
     seen_urls = set()
     cleaned_ads = []
+    page_count = 0
 
-    for item in raw_items:
-        camp = item.get("campaign", {})
-        camp_name = camp.get("name", "")
+    while next_url and page_count < 10:  # 최대 2,000개까지 순회
+        page_count += 1
+        req = urllib.request.Request(next_url, headers={"User-Agent": "Mozilla/5.0"})
+        try:
+            with urllib.request.urlopen(req, timeout=15) as res:
+                data = json.loads(res.read().decode("utf-8"))
+        except Exception as e:
+            print(f"[Meta API Page {page_count} Error] {e}")
+            break
 
-        # 캠페인 이름이 'WM'으로 시작하는 건만 필터링 (대소문자 무시)
-        if not camp_name.upper().startswith("WM"):
-            continue
+        raw_items = data.get("data", [])
+        if not raw_items:
+            break
 
-        creative = item.get("creative", {})
-        post_url = creative.get("instagram_permalink_url", "")
+        for item in raw_items:
+            camp = item.get("campaign", {})
+            camp_name = camp.get("name", "")
 
-        # 퍼머링크가 없으면 effective_object_story_id 기반 추정
-        if not post_url and creative.get("effective_object_story_id"):
-            story_id = creative.get("effective_object_story_id")
-            if "_" in story_id:
-                media_id = story_id.split("_")[1]
-                post_url = f"https://www.instagram.com/p/{media_id}/"
+            # 캠페인 이름에 'WM'이 포함되어 있으면 수집
+            if "WM" not in camp_name.upper():
+                continue
 
-        if not post_url or post_url in seen_urls:
-            continue
+            creative = item.get("creative", {})
+            post_url = creative.get("instagram_permalink_url", "")
 
-        seen_urls.add(post_url)
-        cleaned_ads.append({
-            "ad_id": item.get("id"),
-            "ad_name": item.get("name"),
-            "campaign_name": camp_name,
-            "post_url": post_url
-        })
+            # 퍼머링크가 없을 경우 스토리 ID 변환
+            if not post_url and creative.get("effective_object_story_id"):
+                story_id = creative.get("effective_object_story_id")
+                if "_" in story_id:
+                    media_id = story_id.split("_")[1]
+                    post_url = f"https://www.instagram.com/p/{media_id}/"
 
+            if not post_url or post_url in seen_urls:
+                continue
+
+            seen_urls.add(post_url)
+            cleaned_ads.append({
+                "ad_id": item.get("id"),
+                "ad_name": item.get("name"),
+                "campaign_name": camp_name,
+                "post_url": post_url
+            })
+
+        # 다음 페이지 URL 추출
+        paging = data.get("paging", {})
+        next_url = paging.get("next")
+
+    print(f"[Meta Sync] 총 {len(cleaned_ads)}개의 WM 광고 소재 수집 완료 ({page_count}페이지)")
     AD_CACHE["ads"] = cleaned_ads
     AD_CACHE["last_updated"] = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
     return cleaned_ads
