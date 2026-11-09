@@ -25,12 +25,14 @@
       background: #ffffff;
       border: 1px solid #e2e8f0;
       border-radius: 10px;
-      padding: 14px 10px;
+      padding: 14px 8px;
       text-align: center;
       box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
-    .stat-title { font-size: 12px; color: #64748b; margin-bottom: 6px; }
-    .stat-value { font-size: 20px; font-weight: bold; color: #2563eb; }
+    .stat-title { font-size: 13px; font-weight: 600; color: #1e293b; margin-bottom: 3px; }
+    .stat-sub { font-size: 11px; color: #64748b; margin-bottom: 8px; }
+    .stat-value { font-size: 22px; font-weight: 800; color: #2563eb; }
+    .stat-badge { font-size: 11px; color: #94a3b8; margin-top: 2px; }
 
     .card {
       background: #ffffff;
@@ -93,13 +95,38 @@
   <div class="container">
     <h1>인스타그램 댓글 관리 대시보드</h1>
 
-    <!-- 계정별 실시간 누적 카운터 -->
+    <!-- 계정별 실시간 카운터 (오늘 작성 건수 / 이름 밑 총 누적 건수) -->
     <div class="stat-grid" id="statGrid">
-      <div class="stat-card"><div class="stat-title">오미영 (50대/여)</div><div class="stat-value" id="count_acc_1">0</div></div>
-      <div class="stat-card"><div class="stat-title">황지석 (30대/남)</div><div class="stat-value" id="count_acc_2">0</div></div>
-      <div class="stat-card"><div class="stat-title">김현지 (20대/여)</div><div class="stat-value" id="count_acc_3">0</div></div>
-      <div class="stat-card"><div class="stat-title">김일미 (30대/여)</div><div class="stat-value" id="count_acc_4">0</div></div>
-      <div class="stat-card"><div class="stat-title">이상훈 (30대/남)</div><div class="stat-value" id="count_acc_5">0</div></div>
+      <div class="stat-card">
+        <div class="stat-title">오미영 (50대/여)</div>
+        <div class="stat-sub" id="total_acc_1">누적 0건</div>
+        <div class="stat-value" id="today_acc_1">0건</div>
+        <div class="stat-badge">오늘</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-title">황지석 (30대/남)</div>
+        <div class="stat-sub" id="total_acc_2">누적 0건</div>
+        <div class="stat-value" id="today_acc_2">0건</div>
+        <div class="stat-badge">오늘</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-title">김현지 (20대/여)</div>
+        <div class="stat-sub" id="total_acc_3">누적 0건</div>
+        <div class="stat-value" id="today_acc_3">0건</div>
+        <div class="stat-badge">오늘</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-title">김일미 (30대/여)</div>
+        <div class="stat-sub" id="total_acc_4">누적 0건</div>
+        <div class="stat-value" id="today_acc_4">0건</div>
+        <div class="stat-badge">오늘</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-title">이상훈 (30대/남)</div>
+        <div class="stat-sub" id="total_acc_5">누적 0건</div>
+        <div class="stat-value" id="today_acc_5">0건</div>
+        <div class="stat-badge">오늘</div>
+      </div>
     </div>
 
     <!-- 댓글 작성 폼 -->
@@ -152,9 +179,12 @@
         const res = await fetch("/api/history");
         const data = await res.json();
 
-        for (let accId in data.counts) {
-          const el = document.getElementById("count_" + accId);
-          if (el) el.innerText = data.counts[accId] + "건";
+        // 오늘 건수 & 전체 누적 건수 반영
+        for (let accId in data.today_counts) {
+          const todayEl = document.getElementById("today_" + accId);
+          const totalEl = document.getElementById("total_" + accId);
+          if (todayEl) todayEl.innerText = data.today_counts[accId] + "건";
+          if (totalEl) totalEl.innerText = "누적 " + (data.total_counts[accId] || 0) + "건";
         }
 
         const tbody = document.getElementById("historyBody");

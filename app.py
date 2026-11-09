@@ -3,6 +3,7 @@ import json
 import asyncio
 import traceback
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, FileResponse
@@ -20,6 +21,7 @@ app.add_middleware(
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 HISTORY_FILE = os.path.join(BASE_DIR, "comment_history.json")
+KST = ZoneInfo("Asia/Seoul")
 
 ACCOUNTS = {
     "acc_1": {
@@ -89,13 +91,22 @@ def get_accounts():
 @app.get("/api/history")
 def get_history_summary():
     history = load_history()
-    counts = {k: 0 for k in ACCOUNTS.keys()}
+    today_str = datetime.now(KST).strftime("%Y-%m-%d")
+
+    total_counts = {k: 0 for k in ACCOUNTS.keys()}
+    today_counts = {k: 0 for k in ACCOUNTS.keys()}
+
     for item in history:
         acc = item.get("account_id")
-        if acc in counts:
-            counts[acc] += 1
+        created_at = item.get("created_at", "")
+        if acc in total_counts:
+            total_counts[acc] += 1
+            if created_at.startswith(today_str):
+                today_counts[acc] += 1
+
     return {
-        "counts": counts,
+        "total_counts": total_counts,
+        "today_counts": today_counts,
         "history": list(reversed(history[-50:]))
     }
 
@@ -173,14 +184,15 @@ async def send_comment(req: CommentRequest):
 
                 await asyncio.sleep(4)
 
+                now_kst = datetime.now(KST)
                 history = load_history()
                 history.append({
-                    "id": int(datetime.now().timestamp() * 1000),
+                    "id": int(now_kst.timestamp() * 1000),
                     "account_id": req.account_id,
                     "account_name": acc_info["name"],
                     "post_url": req.post_url,
                     "comment_text": req.comment_text,
-                    "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    "created_at": now_kst.strftime("%Y-%m-%d %H:%M:%S")
                 })
                 save_history(history)
 
