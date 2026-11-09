@@ -75,10 +75,11 @@ async def send_comment(req: CommentRequest):
 
     async with async_playwright() as p:
         try:
+            # 로컬 테스트에서 성공했던 크기(1440x900)와 옵션을 그대로 적용
             context = await p.chromium.launch_persistent_context(
                 user_data_dir=account_dir,
                 headless=True,
-                viewport={"width": 1280, "height": 900},
+                viewport={"width": 1440, "height": 900},
                 user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                 args=[
                     "--no-sandbox",
@@ -97,21 +98,9 @@ async def send_comment(req: CommentRequest):
             await page.goto(req.post_url, wait_until="networkidle", timeout=30000)
             await asyncio.sleep(3)
 
-            # 1. 로그인 여부 사전 검증
-            current_url = page.url
-            if "accounts/login" in current_url:
-                raise HTTPException(status_code=400, detail="계정 로그인이 풀렸습니다. 로컬에서 다시 로그인 후 세션을 푸시해주세요.")
-
-            # 2. 방해되는 팝업/모달 닫기
-            popup_selectors = [
-                "button:has-text('나중에 하기')",
-                "button:has-text('Not Now')",
-                "button:has-text('닫기')",
-                "svg[aria-label='닫기']",
-                "div[role='dialog'] button:has-text('취소')"
-            ]
-            for sel in popup_selectors:
-                btn = page.locator(sel)
+            # 1. 팝업 닫기
+            for text in ["나중에 하기", "Not Now", "닫기"]:
+                btn = page.locator(f"button:has-text('{text}')")
                 if await btn.count() > 0:
                     try:
                         await btn.first.click(timeout=2000)
@@ -119,55 +108,29 @@ async def send_comment(req: CommentRequest):
                     except Exception:
                         pass
 
-            # 3. 릴스/게시물 말풍선(댓글 아이콘) 탐색 및 클릭 시도
-            comment_icons = [
-                "svg[aria-label='댓글 달기']",
-                "svg[aria-label='댓글']",
-                "svg[aria-label='Comment']",
-                "div[role='button']:has(svg[aria-label='댓글'])",
-                "span[role='link']:has(svg[aria-label='댓글'])"
-            ]
-            for icon_sel in comment_icons:
-                icon = page.locator(icon_sel)
-                if await icon.count() > 0 and await icon.first.is_visible():
-                    try:
-                        await icon.first.click(timeout=3000)
-                        await asyncio.sleep(2)
-                        break
-                    except Exception:
-                        pass
+            # 2. 말풍선(댓글 아이콘) 클릭
+            icons = page.locator("svg[aria-label*='댓글'], svg[aria-label*='Comment']").locator("..")
+            if await icons.count() > 0:
+                try:
+                    await icons.first.click(timeout=2000)
+                    await asyncio.sleep(2)
+                except Exception:
+                    pass
 
-            # 4. 범용 댓글 입력창 탐색
-            comment_selectors = [
-                "textarea[aria-label*='댓글']",
-                "textarea[placeholder*='댓글']",
-                "textarea[aria-label*='Comment']",
-                "textarea[placeholder*='Add a comment']",
-                "form textarea",
-                "div[role='textbox'][contenteditable='true']"
-            ]
+            # 3. 입력창 탐색
+            box = page.locator("textarea, div[role='textbox']")
+            count = await box.count()
+            if count == 0:
+                raise HTTPException(status_code=400, detail="댓글 창을 찾지 못했습니다. 계정 로그인이 풀렸는지 확인하세요.")
 
-            comment_box = None
-            for sel in comment_selectors:
-                el = page.locator(sel)
-                if await el.count() > 0 and await el.first.is_visible():
-                    comment_box = el.first
-                    break
-
-            if not comment_box:
-                # 로그인 폼이나 차단 문구가 있는지 체크
-                if await page.locator("input[name='username']").count() > 0:
-                    raise HTTPException(status_code=400, detail="인스타그램 비로그인 상태입니다. 계정 세션을 다시 등록해야 합니다.")
-                raise HTTPException(status_code=400, detail="댓글 입력창을 찾지 못했습니다. 게시물 댓글이 비활성화되었거나 구조가 변경되었습니다.")
-
-            # 5. 댓글 입력 및 등록
-            await comment_box.click()
+            # 4. 댓글 입력 및 게시
+            target = box.first
+            await target.click()
             await asyncio.sleep(1)
-            await comment_box.fill(req.comment_text)
-            await asyncio.sleep(1.5)
+            await target.fill(req.comment_text)
+            await asyncio.sleep(1)
 
-            # 게시 버튼 또는 Enter 클릭
-            post_btn = page.locator("div[role='button']:has-text('게시'), button:has-text('게시'), button[type='submit']")
+            post_btn = page.locator("div[role='button']:has-text('게시'), button:has-text('게시')")
             if await post_btn.count() > 0 and await post_btn.first.is_visible():
                 await post_btn.first.click()
             else:
@@ -178,4 +141,4 @@ async def send_comment(req: CommentRequest):
         finally:
             await context.close()
 
-    return {"status": "success", "message": "댓글 작성이 성공적으로 완료되었습니다!"}
+    return {"status": "success", "message": "댓글 작성이 완료되었습니다!"}
