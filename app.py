@@ -16,25 +16,23 @@ app.add_middleware(
 )
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-PROFILES_ROOT = os.path.join(BASE_DIR, "bot_profiles")
-os.makedirs(PROFILES_ROOT, exist_ok=True)
 
 ACCOUNTS = {
     "acc_1": {
         "name": "오미영 (50대/여)",
-        "dir": os.path.join(PROFILES_ROOT, "profile_omiyoung")
+        "state_file": os.path.join(BASE_DIR, "state_omiyoung.json")
     },
     "acc_2": {
         "name": "황지석 (30대/남)",
-        "dir": os.path.join(PROFILES_ROOT, "profile_hwang")
+        "state_file": os.path.join(BASE_DIR, "state_hwang.json")
     },
     "acc_3": {
         "name": "김현지 (20대/여)",
-        "dir": os.path.join(PROFILES_ROOT, "profile_kim_hj")
+        "state_file": os.path.join(BASE_DIR, "state_kim_hj.json")
     },
     "acc_4": {
         "name": "김일미 (30대/여)",
-        "dir": os.path.join(PROFILES_ROOT, "profile_kim_im")
+        "state_file": os.path.join(BASE_DIR, "state_kim_im.json")
     }
 }
 
@@ -42,16 +40,6 @@ class CommentRequest(BaseModel):
     account_id: str
     post_url: str
     comment_text: str
-
-def force_cleanup_profile(profile_dir: str):
-    lock_names = ["SingletonLock", "SingletonSocket", "SingletonCookie", "lockfile"]
-    for name in lock_names:
-        target = os.path.join(profile_dir, name)
-        try:
-            if os.path.islink(target) or os.path.exists(target):
-                os.unlink(target) if os.path.islink(target) else os.remove(target)
-        except Exception:
-            pass
 
 @app.get("/", response_class=HTMLResponse)
 def get_dashboard():
@@ -61,57 +49,72 @@ def get_dashboard():
             return f.read()
     return "<h1>index.html 파일을 찾을 수 없습니다.</h1>"
 
-# 서버 화면 캡처 확인용 주소
 @app.get("/debug-screen")
 def get_debug_screen():
     debug_path = os.path.join(BASE_DIR, "debug_error.png")
     if os.path.exists(debug_path):
         return FileResponse(debug_path, media_type="image/png")
-    return HTMLResponse("<h3>아직 캡처된 화면이 없습니다. 댓글 등록을 한 번 실행해 보세요.</h3>")
+    return HTMLResponse("<h3>아직 캡처된 화면이 없습니다.</h3>")
+
+@app.get("/api/accounts")
+def get_accounts():
+    return [{"id": k, "name": v["name"]} for k, v in ACCOUNTS.items()]
 
 @app.post("/api/comment")
 async def send_comment(req: CommentRequest):
     if req.account_id not in ACCOUNTS:
         raise HTTPException(status_code=400, detail="존재하지 않는 계정입니다.")
 
-    account_dir = ACCOUNTS[req.account_id]["dir"]
-    force_cleanup_profile(account_dir)
+    acc_info = ACCOUNTS[req.account_id]
+    state_file = acc_info["state_file"]
+
+    if not os.path.exists(state_file):
+        raise HTTPException(status_code=400, detail=f"[{acc_info['name']}] 세션 파일({os.path.basename(state_file)})이 서버에 없습니다.")
 
     async with async_playwright() as p:
-        try:
-            context = await p.chromium.launch_persistent_context(
-                user_data_dir=account_dir,
-                headless=True,
-                viewport={"width": 1440, "height": 900},
-                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                args=[
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-blink-features=AutomationControlled",
-                    "--disable-gpu"
-                ]
-            )
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"브라우저 실행 충돌: {str(e)}")
+        # 1. 브라우저 시작
+        browser = await p.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-blink-features=AutomationControlled",
+                "--disable-gpu"
+            ]
+        )
 
-        page = context.pages[0] if context.pages else await context.new_page()
+        # 2. 저장된 쿠키(JSON)를 완벽하게 로드하여 브라우저 컨텍스트 생성
+        context = await browser.new_context(
+            storage_state=state_file,
+            viewport={"width": 1440, "height": 900},
+            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        )
+
+        page = await context.new_page()
         await page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 
         try:
             await page.goto(req.post_url, wait_until="networkidle", timeout=30000)
-            await asyncio.sleep(4)
+            await asyncio.sleep(3)
 
-            # 팝업 닫기
-            for text in ["나중에 하기", "Not Now", "닫기"]:
-                btn = page.locator(f"button:has-text('{text}')")
+            # 방해 팝업 닫기
+            popup_selectors = [
+                "svg[aria-label='닫기']",
+                "button:has-text('닫기')",
+                "button:has-text('나중에 하기')",
+                "button:has-text('Not Now')",
+                "div[role='dialog'] button:has-text('취소')"
+            ]
+            for sel in popup_selectors:
+                btn = page.locator(sel)
                 if await btn.count() > 0:
                     try:
-                        await btn.first.click(timeout=2000)
+                        await btn.first.click(timeout=1500)
                         await asyncio.sleep(1)
                     except Exception:
                         pass
 
-            # 말풍선 클릭 시도
+            # 말풍선(댓글 아이콘) 클릭 시도
             icons = page.locator("svg[aria-label*='댓글'], svg[aria-label*='Comment']").locator("..")
             if await icons.count() > 0:
                 try:
@@ -120,20 +123,19 @@ async def send_comment(req: CommentRequest):
                 except Exception:
                     pass
 
-            # 입력창 탐색
+            # 댓글 입력창 탐색
             box = page.locator("textarea, div[role='textbox']")
             count = await box.count()
 
-            # 실패 시 서버 화면 캡처 저장
             if count == 0:
                 debug_img = os.path.join(BASE_DIR, "debug_error.png")
                 await page.screenshot(path=debug_img, full_page=True)
                 raise HTTPException(
-                    status_code=400, 
-                    detail="댓글 창을 찾지 못했습니다. 브라우저에서 /debug-screen 주소로 접속해 서버가 보고 있는 화면을 확인하세요."
+                    status_code=400,
+                    detail="댓글 창을 찾지 못했습니다. /debug-screen 에서 화면을 확인하세요."
                 )
 
-            # 댓글 입력 및 게시
+            # 댓글 작성 및 게시
             target = box.first
             await target.click()
             await asyncio.sleep(1)
@@ -149,7 +151,7 @@ async def send_comment(req: CommentRequest):
             await asyncio.sleep(4)
 
         finally:
-            await context.close()
+            await browser.close()
 
-    return {"status": "success", "message": "댓글 작성이 성공적으로 완료되었습니다!"}
+    return {"status": "success", "message": f"{acc_info['name']} 댓글 작성이 성공적으로 완료되었습니다!"}
     
