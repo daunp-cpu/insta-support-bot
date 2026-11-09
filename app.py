@@ -2,8 +2,7 @@ import os
 import json
 import asyncio
 import traceback
-from datetime import datetime
-from zoneinfo import ZoneInfo
+from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, FileResponse
@@ -21,7 +20,9 @@ app.add_middleware(
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 HISTORY_FILE = os.path.join(BASE_DIR, "comment_history.json")
-KST = ZoneInfo("Asia/Seoul")
+
+# 리눅스 시스템 패키지 의존성 없는 순수 KST (UTC+9) 정의
+KST = timezone(timedelta(hours=9))
 
 ACCOUNTS = {
     "acc_1": {
