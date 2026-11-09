@@ -1,14 +1,1 @@
 {"cookies": [{"name": "_GRECAPTCHA", "value": "09AKhCRwi6bgeXURHkaUrSFXCYZtr6hCWk6alMHfWYAhqWYfHjRivvfJGbqlpCIXlCbUk7PmuqcUQi6HZ3NS21lH4", "domain": "www.google.com", "path": "/recaptcha", "expires": 1809730828.622096, "httpOnly": true, "secure": true, "sameSite": "None"}, {"name": "datr", "value": "NP7wagw0wt8dJAwYdxLtx9ae", "domain": ".instagram.com", "path": "/", "expires": 1828738613.045917, "httpOnly": true, "secure": true, "sameSite": "None"}, {"name": "ig_did", "value": "D09F3F52-276B-4E14-90FA-024F18031A25", "domain": ".instagram.com", "path": "/", "expires": 1825714613.045946, "httpOnly": true, "secure": true, "sameSite": "None"}, {"name": "mid", "value": "avD-NAAEAAFcLaR2kWucV9RNf1wB", "domain": ".instagram.com", "path": "/", "expires": 1828738613.045961, "httpOnly": true, "secure": true, "sameSite": "None"}, {"name": "dpr", "value": "1", "domain": ".instagram.com", "path": "/", "expires": 1794787083, "httpOnly": false, "secure": true, "sameSite": "None"}, {"name": "csrftoken", "value": "pSlApT37oUhTxtjudMECOi55rkqg0UQh", "domain": ".instagram.com", "path": "/", "expires": 1828742285.782654, "httpOnly": false, "secure": true, "sameSite": "Lax"}, {"name": "ds_user_id", "value": "40583859840", "domain": ".instagram.com", "path": "/", "expires": 1801958285.782765, "httpOnly": false, "secure": true, "sameSite": "None"}, {"name": "sessionid", "value": "40583859840%3ASFAcfNoujMuCoX%3A27%3AAYmz7RX9HaTWBgOVTGFVCEWubDhNasqnbU31J24-gA", "domain": ".instagram.com", "path": "/", "expires": 1825715474.174571, "httpOnly": true, "secure": true, "sameSite": "None"}, {"name": "fr", "value": "01UsRYt1PdhKnuqx9.AWdyJzaBQSvYb0e92NBT2bC2hLEAUN0x2D4rD8FTW0aW76X3VGk.Bq8QGX..AAA.0.0.Bq8QGX.AWdvljLuLqemEVB6hYYBCXxpuvI", "domain": ".facebook.com", "path": "/", "expires": 1801955479.077882, "httpOnly": true, "secure": true, "sameSite": "None"}, {"name": "wd", "value": "1440x900", "domain": ".instagram.com", "path": "/", "expires": 1794787083, "httpOnly": false, "secure": true, "sameSite": "Lax"}], "origins": []}
-python3 -c '
-import json, os
-
-for name, fname in [("오미영", "state_omiyoung.json"), ("황지석", "state_hwang.json"), ("김현지", "state_kim_hj.json"), ("김일미", "state_kim_im.json")]:
-    if os.path.exists(fname):
-        with open(fname, "r") as f:
-            data = json.load(f)
-            cookies = [c["name"] for c in data.get("cookies", [])]
-            has_session = "sessionid" in cookies
-            print(f"[{name}] 쿠키 개수: {len(cookies)}개 | 로그인 토큰(sessionid): {has_session}")
-    else:
-        print(f"[{name}] 파일 없음")
-'
