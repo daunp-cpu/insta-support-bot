@@ -28,6 +28,8 @@ KST = timezone(timedelta(hours=9))
 META_ACCESS_TOKEN = os.getenv("META_ACCESS_TOKEN", "EAARZCr1VmbggBS5MOA5RjWwJ3PW8EyitDtUP3PG1LaLUam4aXvde8saLq2lXkRyrZB6ACHAXRxBSiurQ84IT5D9S3fcdxRVZBOFIrK7nOI7DriGUaAqBZAdOuZCiFdD03i7IHvp0vZC6Y6JjR35ixqTEArVTy8v8BiURZCTPhvWymYXZBde8SZC9IfgiRgwk3IMaNBolSUyaBV7ojQWA6J2bYTZBhYRZCgcau5ib7eNWRJyZBYfXlsDZBiFZA8ViF4q4CTSZC4V5SJSubR0D5USzewria5YuAZDZD")
 META_AD_ACCOUNT_ID = os.getenv("META_AD_ACCOUNT_ID", "1363134018754563")
 
+MAX_ADS_CAPACITY = 300  # 사이트 과부하 방지 최대 보관 개수
+
 AD_CACHE = {
     "last_updated": None,
     "ads": []
@@ -80,7 +82,12 @@ def save_history(history):
         json.dump(history, f, ensure_ascii=False, indent=2)
 
 def fetch_meta_wm_ads():
-    """Meta Graph API에서 WM 캠페인 광고 소재와 썸네일(미리보기)을 전수 수집"""
+    """
+    Meta Graph API에서 WM 광고를 수집하여 기존 목록에 누적(Merge).
+    - 새 소재는 최상단에 누적
+    - 기존 소재 유지 및 중복 제외
+    - 300개 초과 시 오래된 밑의 항목부터 자동 제거
+    """
     base_url = f"https://graph.facebook.com/v19.0/act_{META_AD_ACCOUNT_ID}/ads"
     params = {
         "fields": "id,name,status,creative{id,name,instagram_permalink_url,effective_object_story_id,thumbnail_url,image_url},campaign{id,name}",
@@ -89,8 +96,7 @@ def fetch_meta_wm_ads():
     }
 
     next_url = f"{base_url}?{urllib.parse.urlencode(params)}"
-    seen_urls = set()
-    cleaned_ads = []
+    fetched_ads = []
     page_count = 0
 
     while next_url and page_count < 10:
@@ -123,15 +129,12 @@ def fetch_meta_wm_ads():
                     media_id = story_id.split("_")[1]
                     post_url = f"https://www.instagram.com/p/{media_id}/"
 
-            if not post_url or post_url in seen_urls:
+            if not post_url:
                 continue
 
-            seen_urls.add(post_url)
-
-            # 썸네일 URL 추출 (동영상 썸네일 또는 이미지 소재 URL)
             thumbnail = creative.get("thumbnail_url") or creative.get("image_url") or ""
 
-            cleaned_ads.append({
+            fetched_ads.append({
                 "ad_id": item.get("id"),
                 "ad_name": item.get("name"),
                 "campaign_name": camp_name,
@@ -142,16 +145,31 @@ def fetch_meta_wm_ads():
         paging = data.get("paging", {})
         next_url = paging.get("next")
 
-    print(f"[Meta Sync] 총 {len(cleaned_ads)}개의 WM 광고 소재 수집 완료 ({page_count}페이지)")
-    AD_CACHE["ads"] = cleaned_ads
+    # API 응답 실패 또는 가져온 게 없을 경우 기존 캐시 보존
+    if not fetched_ads and AD_CACHE["ads"]:
+        print("[Meta Sync] 새로 가져온 광고가 없어 기존 캐시를 유지합니다.")
+        return AD_CACHE["ads"]
+
+    # 새 소재 누적 병합 (새로운 건 위로, 중복 URL 방지)
+    existing_urls = {ad["post_url"] for ad in AD_CACHE["ads"]}
+    new_incoming = [ad for ad in fetched_ads if ad["post_url"] not in existing_urls]
+
+    merged_ads = new_incoming + AD_CACHE["ads"]
+
+    # 최대 용량 초과 시 오래된 하단 데이터 제거
+    if len(merged_ads) > MAX_ADS_CAPACITY:
+        merged_ads = merged_ads[:MAX_ADS_CAPACITY]
+
+    AD_CACHE["ads"] = merged_ads
     AD_CACHE["last_updated"] = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
-    return cleaned_ads
+    print(f"[Meta Sync] 신규 {len(new_incoming)}개 추가 / 총 {len(AD_CACHE['ads'])}개 유지 중")
+
+    return AD_CACHE["ads"]
 
 async def schedule_ad_sync_loop():
     while True:
         try:
             fetch_meta_wm_ads()
-            print(f"[Auto Sync] WM Ads updated at {AD_CACHE['last_updated']} (Total: {len(AD_CACHE['ads'])})")
         except Exception as e:
             print(f"[Auto Sync Error] {e}")
         await asyncio.sleep(5 * 3600)
@@ -376,4 +394,3 @@ async def delete_comment(req: DeleteRequest):
         raise HTTPException(status_code=500, detail=f"삭제 실패: {str(e)}")
 
     return {"status": "success", "message": "댓글이 삭제되었습니다."}
-    
